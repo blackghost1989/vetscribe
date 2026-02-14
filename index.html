@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VetScribe — 獸醫看診錄音分析</title>
+    <meta name="description" content="獸醫專用看診錄音分析工具，自動轉錄並分類整理看診內容">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="app">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-inner">
+                <div class="logo">
+                    <span class="logo-icon">🩺</span>
+                    <span>VetScribe</span>
+                    <span class="logo-sub">獸醫看診錄音分析</span>
+                </div>
+                <div class="header-actions">
+                    <div class="api-status" id="apiStatus">
+                        <span class="api-status-dot" id="apiStatusDot"></span>
+                        <span id="apiStatusText">未連接 API</span>
+                    </div>
+                    <button class="btn" id="settingsBtn" title="API 設定">⚙️ 設定</button>
+                    <button class="btn" id="historyBtn" title="歷史記錄">📂 歷史記錄</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Recorder Panel -->
+            <section class="panel recorder-panel">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <span class="icon">🎙️</span> 看診錄音
+                    </div>
+                    <div class="recorder-status" id="recorderStatus">
+                        <span class="status-dot" id="statusDot"></span>
+                        <span id="statusText">準備就緒</span>
+                    </div>
+                </div>
+                <div class="panel-body recorder-body">
+                    <!-- Waveform -->
+                    <div class="waveform-container" id="waveform"></div>
+
+                    <!-- Record Button -->
+                    <div class="record-btn-container">
+                        <button class="record-btn" id="recordBtn" title="開始錄音">
+                            🎤
+                        </button>
+                        <div class="pulse-ring"></div>
+                    </div>
+
+                    <!-- Timer -->
+                    <div class="timer" id="timer">00:00</div>
+
+                    <!-- Controls (hidden until recording) -->
+                    <div class="recorder-controls" id="recorderControls" style="display:none;">
+                        <button class="btn pause-btn" id="pauseBtn">⏸️ 暫停</button>
+                        <button class="btn btn-danger stop-btn" id="stopBtn">⏹️ 結束錄音</button>
+                    </div>
+
+                    <!-- Upload existing audio -->
+                    <div class="upload-area" id="uploadArea">
+                        <div class="icon">📁</div>
+                        <p>或拖放 / 點擊上傳已有的音訊檔案</p>
+                        <p style="font-size: 0.75rem; margin-top: 0.25rem;">支援 WAV, MP3, OGG, FLAC, AAC</p>
+                        <input type="file" id="audioFileInput" accept="audio/*" style="display:none;">
+                    </div>
+
+                    <!-- URL Input -->
+                    <div class="url-input-area" id="urlInputArea">
+                        <div style="display:flex; gap:0.5rem; width:100%; max-width:600px;">
+                            <input type="text" class="form-input" id="videoUrlInput" placeholder="貼上 YouTube 或影片網址..."
+                                style="flex:1;">
+                            <button class="btn btn-primary" id="analyzeUrlBtn">🔗 分析影片</button>
+                        </div>
+                        <p style="font-size:0.75rem; color:var(--text-tertiary); margin-top:0.375rem;">支援 YouTube 連結（僅限
+                            Gemini API）</p>
+                    </div>
+
+
+                    <div class="audio-player" id="audioPlayerContainer" style="display:none;">
+                        <audio id="audioPlayer" controls></audio>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Transcript Panel -->
+            <section class="panel">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <span class="icon">📝</span> 逐字稿
+                    </div>
+                    <div class="export-actions" id="transcriptActions" style="display:none;">
+                        <button class="btn copy-summary-btn" id="copyTranscriptBtn" title="複製逐字稿">📋 複製</button>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <div class="transcript-content" id="transcriptContent">
+                        <div class="transcript-placeholder" id="transcriptPlaceholder">
+                            <span class="icon">💬</span>
+                            <span>錄音結束後自動產生逐字稿</span>
+                        </div>
+                        <div class="transcript-text" id="transcriptText" style="display:none;"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Analysis Panel -->
+            <section class="panel">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <span class="icon">🔬</span> 分析報告
+                    </div>
+                    <div class="export-actions" id="analysisActions" style="display:none;">
+                        <button class="btn copy-summary-btn" id="copyAnalysisBtn" title="複製分析">📋 複製</button>
+                        <button class="btn copy-summary-btn" id="exportJsonBtn" title="匯出 JSON">💾 匯出</button>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <div class="analysis-content" id="analysisContent">
+                        <div class="transcript-placeholder" id="analysisPlaceholder">
+                            <span class="icon">📊</span>
+                            <span>逐字稿完成後自動分析分類</span>
+                        </div>
+                        <div id="analysisResult" style="display:none;"></div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="modal-backdrop" id="settingsModal">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="modal-title">⚙️ API 設定</div>
+                <button class="modal-close" id="closeSettingsBtn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">API 服務商</label>
+                    <select class="form-select" id="providerSelect">
+                        <option value="gemini">Google Gemini</option>
+                        <option value="openai">OpenAI (ChatGPT)</option>
+                    </select>
+                </div>
+
+                <!-- Gemini Settings -->
+                <div id="geminiSettings">
+                    <div class="form-group">
+                        <label class="form-label">Google Gemini API Key</label>
+                        <input type="password" class="form-input" id="apiKeyInput" placeholder="輸入你的 Gemini API Key...">
+                        <div class="form-hint">
+                            前往 <a href="https://aistudio.google.com/apikey" target="_blank"
+                                style="color: var(--accent);">Google AI Studio</a> 建立 API Key。
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Gemini 模型</label>
+                        <select class="form-select" id="modelSelect">
+                            <option value="gemini-2.5-flash">Gemini 2.5 Flash (推薦)</option>
+                            <option value="gemini-2.5-pro">Gemini 2.5 Pro (更精確)</option>
+                            <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- OpenAI Settings -->
+                <div id="openaiSettings" style="display:none;">
+                    <div class="form-group">
+                        <label class="form-label">OpenAI API Key</label>
+                        <input type="password" class="form-input" id="openaiKeyInput"
+                            placeholder="輸入你的 OpenAI API Key (sk-...)">
+                        <div class="form-hint">
+                            前往 <a href="https://platform.openai.com/api-keys" target="_blank"
+                                style="color: var(--accent);">OpenAI Platform</a> 建立 API Key。
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">ChatGPT 模型</label>
+                        <select class="form-select" id="openaiModelSelect">
+                            <option value="gpt-4o">GPT-4o (推薦)</option>
+                            <option value="gpt-4o-mini">GPT-4o Mini (快速)</option>
+                            <option value="gpt-4.1">GPT-4.1</option>
+                            <option value="gpt-4.1-mini">GPT-4.1 Mini</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-hint" style="margin-top: 0.5rem;">
+                    🔒 所有 API Key 僅儲存在瀏覽器本地，不會上傳至任何伺服器。
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" id="cancelSettingsBtn">取消</button>
+                <button class="btn btn-primary" id="saveSettingsBtn">儲存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- History Modal -->
+    <div class="modal-backdrop" id="historyModal">
+        <div class="modal" style="max-width: 600px;">
+            <div class="modal-header">
+                <div class="modal-title">📂 歷史記錄</div>
+                <button class="modal-close" id="closeHistoryBtn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="history-list" id="historyList">
+                    <div class="transcript-placeholder" style="min-height: 100px;">
+                        <span>尚無歷史記錄</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-danger" id="clearHistoryBtn">🗑️ 清除全部</button>
+                <button class="btn" id="importJsonBtn">📥 匯入 JSON</button>
+                <input type="file" id="jsonFileInput" accept=".json" style="display:none;">
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>
