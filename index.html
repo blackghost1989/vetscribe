@@ -65,7 +65,6 @@
 
                     <!-- Controls (hidden until recording) -->
                     <div class="recorder-controls" id="recorderControls" style="display:none;">
-                        <button class="btn pause-btn" id="pauseBtn">⏸️ 暫停</button>
                         <button class="btn btn-danger stop-btn" id="stopBtn">⏹️ 結束錄音</button>
                     </div>
 
@@ -91,6 +90,9 @@
 
                     <div class="audio-player" id="audioPlayerContainer" style="display:none;">
                         <audio id="audioPlayer" controls></audio>
+                        <div class="audio-actions">
+                            <button class="btn" id="downloadAudioBtn">⬇️ 下載錄音</button>
+                        </div>
                     </div>
                 </div>
             </section>

@@ -69,7 +69,6 @@ JSON 結構如下：
 
     const dom = {
         recordBtn: $('#recordBtn'),
-        pauseBtn: $('#pauseBtn'),
         stopBtn: $('#stopBtn'),
         recorderControls: $('#recorderControls'),
         timer: $('#timer'),
@@ -80,6 +79,7 @@ JSON 結構如下：
         audioFileInput: $('#audioFileInput'),
         audioPlayerContainer: $('#audioPlayerContainer'),
         audioPlayer: $('#audioPlayer'),
+        downloadAudioBtn: $('#downloadAudioBtn'),
         transcriptPlaceholder: $('#transcriptPlaceholder'),
         transcriptText: $('#transcriptText'),
         transcriptActions: $('#transcriptActions'),
@@ -232,7 +232,7 @@ JSON 結構如下：
             isPaused = false;
 
             dom.recordBtn.classList.add('recording');
-            dom.recordBtn.innerHTML = '🔴';
+            dom.recordBtn.innerHTML = '⏸️';
             dom.recorderControls.style.display = 'flex';
             dom.uploadArea.style.display = 'none';
             dom.statusDot.className = 'status-dot recording';
@@ -246,19 +246,24 @@ JSON 結構如下：
         }
     }
 
-    function pauseRecording() {
-        if (!mediaRecorder) return;
-        if (isPaused) {
+    function toggleRecording() {
+        if (!isRecording) {
+            startRecording();
+        } else if (isPaused) {
+            // Resume
             mediaRecorder.resume();
             isPaused = false;
-            dom.pauseBtn.innerHTML = '⏸️ 暫停';
+            dom.recordBtn.innerHTML = '⏸️';
+            dom.recordBtn.classList.add('recording');
             dom.statusDot.className = 'status-dot recording';
             dom.statusText.textContent = '錄音中...';
             setWaveformActive(true);
         } else {
+            // Pause
             mediaRecorder.pause();
             isPaused = true;
-            dom.pauseBtn.innerHTML = '▶️ 繼續';
+            dom.recordBtn.innerHTML = '🎤';
+            dom.recordBtn.classList.remove('recording');
             dom.statusDot.className = 'status-dot paused';
             dom.statusText.textContent = '已暫停';
             setWaveformActive(false);
@@ -302,6 +307,26 @@ JSON 結構如下：
         dom.uploadArea.style.display = 'none';
         toast('音訊檔案已載入', 'success');
         processAudio(file);
+    }
+
+    function downloadAudio() {
+        if (!audioBlob) {
+            toast('沒有可下載的錄音', 'error');
+            return;
+        }
+        const ext = audioBlob.type.includes('webm') ? 'webm'
+            : audioBlob.type.includes('wav') ? 'wav'
+                : audioBlob.type.includes('mp3') || audioBlob.type.includes('mpeg') ? 'mp3'
+                    : audioBlob.type.includes('ogg') ? 'ogg'
+                        : 'audio';
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(audioBlob);
+        a.download = `vetscribe_${timestamp}.${ext}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        toast('錄音檔案已下載', 'success');
     }
 
     // ===== Utility =====
@@ -1043,11 +1068,8 @@ JSON 結構如下：
     // ===== Event Bindings =====
     function bindEvents() {
         // Record
-        dom.recordBtn.addEventListener('click', () => {
-            if (isRecording) stopRecording();
-            else startRecording();
-        });
-        dom.pauseBtn.addEventListener('click', pauseRecording);
+        // Record button: toggle start / pause / resume
+        dom.recordBtn.addEventListener('click', toggleRecording);
         dom.stopBtn.addEventListener('click', stopRecording);
 
         // Upload
@@ -1067,6 +1089,9 @@ JSON 結構如下：
             dom.uploadArea.style.borderColor = '';
             if (e.dataTransfer.files[0]) handleFileUpload(e.dataTransfer.files[0]);
         });
+
+        // Download audio
+        dom.downloadAudioBtn.addEventListener('click', downloadAudio);
 
         // URL analysis
         dom.analyzeUrlBtn.addEventListener('click', () => {

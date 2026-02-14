@@ -110,6 +110,8 @@ body {
   font-weight: 700;
   color: var(--text-primary);
   text-decoration: none;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .logo-icon {
@@ -972,6 +974,23 @@ body {
   .header-inner {
     padding: 0 1rem;
   }
+
+  .logo-sub {
+    display: none;
+  }
+
+  .app-header {
+    padding: 0 0.5rem;
+  }
+
+  .header-actions .btn {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.75rem;
+  }
+
+  .api-status {
+    display: none;
+  }
 }
 
 /* ===== Export Button ===== */
@@ -1058,4 +1077,17 @@ audio::-webkit-media-controls-panel {
   flex-direction: column;
   align-items: center;
   margin-top: 0.5rem;
+}
+
+/* ===== Audio Download ===== */
+.audio-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  width: 100%;
+}
+
+.audio-actions audio {
+  flex: 1;
 }
