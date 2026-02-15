@@ -309,24 +309,99 @@ JSON 結構如下：
         processAudio(file);
     }
 
-    function downloadAudio() {
+    async function downloadAudio() {
         if (!audioBlob) {
             toast('沒有可下載的錄音', 'error');
             return;
         }
-        const ext = audioBlob.type.includes('webm') ? 'webm'
-            : audioBlob.type.includes('wav') ? 'wav'
-                : audioBlob.type.includes('mp3') || audioBlob.type.includes('mpeg') ? 'mp3'
-                    : audioBlob.type.includes('ogg') ? 'ogg'
-                        : 'audio';
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(audioBlob);
-        a.download = `vetscribe_${timestamp}.${ext}`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        toast('錄音檔案已下載', 'success');
+
+        toast('正在轉換為 WAV 格式...', 'info');
+
+        try {
+            // Decode audio blob to PCM using AudioContext
+            const arrayBuffer = await audioBlob.arrayBuffer();
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+            // Encode as WAV
+            const wavBlob = audioBufferToWav(audioBuffer);
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(wavBlob);
+            a.download = `vetscribe_${timestamp}.wav`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            audioCtx.close();
+            toast('WAV 錄音檔已下載', 'success');
+        } catch (err) {
+            console.error('WAV conversion error:', err);
+            // Fallback: download original format
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(audioBlob);
+            a.download = `vetscribe_recording.${audioBlob.type.includes('mp4') ? 'm4a' : 'webm'}`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            toast('原始格式已下載（轉換失敗）', 'warning');
+        }
+    }
+
+    function audioBufferToWav(buffer) {
+        const numChannels = buffer.numberOfChannels;
+        const sampleRate = buffer.sampleRate;
+        const format = 1; // PCM
+        const bitsPerSample = 16;
+
+        // Interleave channels
+        let interleaved;
+        if (numChannels === 1) {
+            interleaved = buffer.getChannelData(0);
+        } else {
+            const left = buffer.getChannelData(0);
+            const right = buffer.getChannelData(1);
+            interleaved = new Float32Array(left.length + right.length);
+            for (let i = 0, idx = 0; i < left.length; i++) {
+                interleaved[idx++] = left[i];
+                interleaved[idx++] = right[i];
+            }
+        }
+
+        const dataLength = interleaved.length * (bitsPerSample / 8);
+        const headerLength = 44;
+        const totalLength = headerLength + dataLength;
+        const arrayBuffer = new ArrayBuffer(totalLength);
+        const view = new DataView(arrayBuffer);
+
+        // WAV header
+        writeString(view, 0, 'RIFF');
+        view.setUint32(4, totalLength - 8, true);
+        writeString(view, 8, 'WAVE');
+        writeString(view, 12, 'fmt ');
+        view.setUint32(16, 16, true); // chunk size
+        view.setUint16(20, format, true);
+        view.setUint16(22, numChannels, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, sampleRate * numChannels * (bitsPerSample / 8), true);
+        view.setUint16(32, numChannels * (bitsPerSample / 8), true);
+        view.setUint16(34, bitsPerSample, true);
+        writeString(view, 36, 'data');
+        view.setUint32(40, dataLength, true);
+
+        // PCM samples (float32 → int16)
+        let offset = 44;
+        for (let i = 0; i < interleaved.length; i++, offset += 2) {
+            let s = Math.max(-1, Math.min(1, interleaved[i]));
+            view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+        }
+
+        return new Blob([arrayBuffer], { type: 'audio/wav' });
+    }
+
+    function writeString(view, offset, str) {
+        for (let i = 0; i < str.length; i++) {
+            view.setUint8(offset + i, str.charCodeAt(i));
+        }
     }
 
     // ===== Utility =====
