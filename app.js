@@ -62,6 +62,45 @@ JSON 結構如下：
     let recordingSeconds = 0;
     let isPaused = false;
     let isRecording = false;
+    let wakeLock = null;
+
+    // ===== Wake Lock (prevent iOS screen sleep during API calls) =====
+    async function acquireWakeLock() {
+        try {
+            if ('wakeLock' in navigator) {
+                wakeLock = await navigator.wakeLock.request('screen');
+                console.log('Wake lock acquired');
+            }
+        } catch (e) {
+            console.warn('Wake lock not available:', e);
+        }
+    }
+
+    async function releaseWakeLock() {
+        if (wakeLock) {
+            try {
+                await wakeLock.release();
+                wakeLock = null;
+                console.log('Wake lock released');
+            } catch (e) { /* noop */ }
+        }
+    }
+
+    // ===== Fetch with retry (handles iOS network suspension) =====
+    async function fetchWithRetry(url, options, retries = 3, delay = 2000) {
+        for (let attempt = 1; attempt <= retries; attempt++) {
+            try {
+                const resp = await fetch(url, options);
+                return resp;
+            } catch (err) {
+                console.warn(`Fetch attempt ${attempt}/${retries} failed:`, err.message);
+                if (attempt === retries) throw err;
+                toast(`網路中斷，${delay / 1000}秒後重試 (${attempt}/${retries})...`, 'warning');
+                await new Promise(r => setTimeout(r, delay));
+                delay *= 1.5; // exponential backoff
+            }
+        }
+    }
 
     // ===== DOM refs =====
     const $ = (sel) => document.querySelector(sel);
@@ -453,7 +492,7 @@ JSON 結構如下：
             body.system_instruction = { parts: [{ text: systemInstruction }] };
         }
 
-        const resp = await fetch(url, {
+        const resp = await fetchWithRetry(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -481,7 +520,7 @@ JSON 結構如下：
             generation_config: { temperature: 0.2, response_mime_type: 'application/json' },
         };
 
-        const resp = await fetch(url, {
+        const resp = await fetchWithRetry(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -502,7 +541,7 @@ JSON 結構如下：
         const mimeType = getGeminiMimeType(blob);
         const numBytes = blob.size;
 
-        const initResp = await fetch(
+        const initResp = await fetchWithRetry(
             `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`,
             {
                 method: 'POST',
@@ -521,7 +560,7 @@ JSON 結構如下：
         const uploadUrl = initResp.headers.get('X-Goog-Upload-URL');
         if (!uploadUrl) throw new Error('無法取得上傳 URL');
 
-        const uploadResp = await fetch(uploadUrl, {
+        const uploadResp = await fetchWithRetry(uploadUrl, {
             method: 'POST',
             headers: {
                 'Content-Length': String(numBytes),
@@ -551,7 +590,7 @@ JSON 結構如下：
             body.system_instruction = { parts: [{ text: systemInstruction }] };
         }
 
-        const resp = await fetch(url, {
+        const resp = await fetchWithRetry(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -580,6 +619,7 @@ JSON 結構如下：
             return;
         }
 
+        await acquireWakeLock();
         const model = getGeminiModel();
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
@@ -595,7 +635,7 @@ JSON 結構如下：
                 }],
             };
 
-            const transcribeResp = await fetch(endpoint, {
+            const transcribeResp = await fetchWithRetry(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(transcribeBody),
@@ -624,6 +664,9 @@ JSON 結構如下：
             hideTranscriptLoading();
             hideAnalysisLoading();
             toast(`影片分析失敗: ${err.message}`, 'error');
+            showRetryButton(dom.transcriptPlaceholder, () => processVideoUrl(url));
+        } finally {
+            await releaseWakeLock();
         }
     }
 
@@ -651,7 +694,7 @@ JSON 結構如下：
         formData.append('language', 'zh');
         formData.append('response_format', 'text');
 
-        const resp = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        const resp = await fetchWithRetry('https://api.openai.com/v1/audio/transcriptions', {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${apiKey}` },
             body: formData,
@@ -682,7 +725,7 @@ JSON 結構如下：
             ],
         };
 
-        const resp = await fetch(url, {
+        const resp = await fetchWithRetry(url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -711,6 +754,7 @@ JSON 結構如下：
             return;
         }
 
+        await acquireWakeLock();
         const provider = getProvider();
         let transcript = '';
 
@@ -718,14 +762,12 @@ JSON 結構如下：
         showTranscriptLoading();
         try {
             if (provider === 'openai') {
-                // OpenAI Whisper (max 25MB)
                 if (blob.size > 25 * 1024 * 1024) {
                     throw new Error('OpenAI Whisper 最大支援 25MB 音訊檔案');
                 }
                 showTranscriptLoading('使用 Whisper 轉錄中...');
                 transcript = await openaiWhisperTranscribe(blob);
             } else {
-                // Gemini
                 const mimeType = getGeminiMimeType(blob);
                 const isLargeFile = blob.size > 15 * 1024 * 1024;
 
@@ -738,8 +780,9 @@ JSON 結構如下：
                     let fileUri = fileInfo.uri;
                     while (fileState === 'PROCESSING') {
                         await new Promise((r) => setTimeout(r, 2000));
-                        const statusResp = await fetch(
-                            `https://generativelanguage.googleapis.com/v1beta/${fileInfo.name}?key=${getGeminiKey()}`
+                        const statusResp = await fetchWithRetry(
+                            `https://generativelanguage.googleapis.com/v1beta/${fileInfo.name}?key=${getGeminiKey()}`,
+                            {}
                         );
                         const statusData = await statusResp.json();
                         fileState = statusData.state;
@@ -771,6 +814,8 @@ JSON 結構如下：
             console.error('Transcription error:', err);
             hideTranscriptLoading();
             toast(`轉錄失敗: ${err.message}`, 'error');
+            showRetryButton(dom.transcriptText || dom.transcriptPlaceholder, () => processAudio(blob));
+            await releaseWakeLock();
             return;
         }
 
@@ -793,6 +838,9 @@ JSON 結構如下：
             console.error('Analysis error:', err);
             hideAnalysisLoading();
             toast(`分析失敗: ${err.message}`, 'error');
+            showRetryButton(dom.analysisPlaceholder, () => processAudio(blob));
+        } finally {
+            await releaseWakeLock();
         }
     }
 
@@ -876,6 +924,23 @@ JSON 結構如下：
         const el = document.getElementById('analysisLoading');
         if (el) el.style.display = 'none';
         dom.analysisPlaceholder.style.display = 'flex';
+    }
+
+    function showRetryButton(container, retryFn) {
+        // Remove any existing retry button
+        document.querySelectorAll('.retry-container').forEach(el => el.remove());
+        const div = document.createElement('div');
+        div.className = 'retry-container';
+        div.style.cssText = 'display:flex; flex-direction:column; align-items:center; gap:0.75rem; padding:1.5rem; text-align:center;';
+        div.innerHTML = `
+            <p style="color:var(--text-tertiary); font-size:0.875rem;">自動重試均失敗，請確認網路連線後手動重試</p>
+            <button class="btn btn-primary" id="retryBtn">🔄 重試</button>
+        `;
+        container.after(div);
+        div.querySelector('#retryBtn').addEventListener('click', () => {
+            div.remove();
+            retryFn();
+        });
     }
 
     function showAnalysis(data) {
