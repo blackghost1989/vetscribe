@@ -9,6 +9,8 @@
         GEMINI_MODEL: 'vetscribe_model',
         OPENAI_KEY: 'vetscribe_openai_key',
         OPENAI_MODEL: 'vetscribe_openai_model',
+        LOCAL_API: 'vetscribe_local_api',
+        LOCAL_LLM: 'vetscribe_local_llm',
         HISTORY: 'vetscribe_history',
     };
 
@@ -50,7 +52,8 @@ JSON 結構如下：
 1. 如果某類別在對話中未提及，該陣列留空 []
 2. 每個項目要簡潔清楚，保留重要數值
 3. 使用繁體中文
-4. 只回傳 JSON，不要回傳其他文字`;
+4. 非常重要：請根據對話語氣與上下文，主動將對話內容標註是由誰說的（例：【獸醫】、【飼主】）。
+5. 只回傳 JSON，不要回傳其他文字`;
 
     // ===== State =====
     let mediaRecorder = null;
@@ -139,8 +142,10 @@ JSON 結構如下：
         openaiSettings: $('#openaiSettings'),
         apiKeyInput: $('#apiKeyInput'),
         modelSelect: $('#modelSelect'),
-        openaiKeyInput: $('#openaiKeyInput'),
         openaiModelSelect: $('#openaiModelSelect'),
+        localSettings: $('#localSettings'),
+        localApiInput: $('#localApiInput'),
+        localLlmSelect: $('#localLlmSelect'),
         apiStatusDot: $('#apiStatusDot'),
         apiStatusText: $('#apiStatusText'),
         // History
@@ -180,7 +185,16 @@ JSON 結構如下：
     }
 
     function getActiveApiKey() {
+        if (getProvider() === 'local') return true; // Local bypasses API key check for transcript, LLM check will happen later
         return getProvider() === 'openai' ? getOpenaiKey() : getGeminiKey();
+    }
+
+    function getLocalApiUrl() {
+        return localStorage.getItem(STORAGE_KEYS.LOCAL_API) || 'http://127.0.0.1:8000';
+    }
+
+    function getLocalLlmProvider() {
+        return localStorage.getItem(STORAGE_KEYS.LOCAL_LLM) || 'gemini';
     }
 
     // ===== Init =====
@@ -744,6 +758,35 @@ JSON 結構如下：
     }
 
     // =================================================================
+    //  LOCAL QWEN-ASR API
+    // =================================================================
+    async function localQwenTranscribe(blob) {
+        const apiUrl = getLocalApiUrl();
+        if (!apiUrl) throw new Error('請先設定本機 API 網址');
+
+        const formData = new FormData();
+        const ext = blob.type.includes('webm') ? 'webm' : 'wav';
+        const file = new File([blob], `recording.${ext}`, { type: blob.type });
+        formData.append('audio', file);
+
+        const resp = await fetchWithRetry(`${apiUrl.replace(/\/$/, '')}/api/transcribe`, {
+            method: 'POST',
+            body: formData,
+        });
+
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err?.error || `本機 API 連線錯誤 (${resp.status})`);
+        }
+
+        const data = await resp.json();
+        if (!data.success) {
+            throw new Error(data.error || '本機 API 回傳失敗');
+        }
+        return data.text || '';
+    }
+
+    // =================================================================
     //  PROCESS AUDIO (dispatches to correct provider)
     // =================================================================
     async function processAudio(blob) {
@@ -767,6 +810,9 @@ JSON 結構如下：
                 }
                 showTranscriptLoading('使用 Whisper 轉錄中...');
                 transcript = await openaiWhisperTranscribe(blob);
+            } else if (provider === 'local') {
+                showTranscriptLoading('使用本機 Qwen-ASR 轉錄中...');
+                transcript = await localQwenTranscribe(blob);
             } else {
                 const mimeType = getGeminiMimeType(blob);
                 const isLargeFile = blob.size > 15 * 1024 * 1024;
@@ -810,6 +856,30 @@ JSON 結構如下：
 
             showTranscript(transcript);
             toast('逐字稿產生完成', 'success');
+
+            // Step 2: Analyze
+            showAnalysisLoading('分析產生中...');
+            let analysisText = '';
+
+            if (provider === 'local') {
+                const llmProvider = getLocalLlmProvider();
+                if (llmProvider === 'openai') {
+                    if (!getOpenaiKey()) throw new Error('本機模式下未設定 OpenAI API Key，無法進行分析分類');
+                    analysisText = await openaiChatAnalyze(transcript);
+                } else {
+                    if (!getGeminiKey()) throw new Error('本機模式下未設定 Gemini API Key，無法進行分析分類');
+                    analysisText = await geminiAnalyzeText(transcript);
+                }
+            } else if (provider === 'openai') {
+                analysisText = await openaiChatAnalyze(transcript);
+            } else {
+                analysisText = await geminiAnalyzeText(transcript);
+            }
+
+            const parsed = parseAnalysis(analysisText);
+            showAnalysis(parsed);
+            toast('分析完成', 'success');
+            saveToHistory(transcript, parsed);
         } catch (err) {
             console.error('Transcription error:', err);
             hideTranscriptLoading();
@@ -1120,52 +1190,52 @@ JSON 結構如下：
         dom.modelSelect.value = getGeminiModel();
         dom.openaiKeyInput.value = getOpenaiKey();
         dom.openaiModelSelect.value = getOpenaiModel();
-        toggleProviderSettings(getProvider());
+        dom.localApiInput.value = getLocalApiUrl();
+        dom.localLlmSelect.value = getLocalLlmProvider();
+        toggleSettingsView();
     }
 
-    function toggleProviderSettings(provider) {
-        dom.geminiSettings.style.display = provider === 'gemini' ? 'block' : 'none';
-        dom.openaiSettings.style.display = provider === 'openai' ? 'block' : 'none';
+    function toggleSettingsView() {
+        const p = dom.providerSelect.value;
+        dom.geminiSettings.style.display = p === 'gemini' ? 'block' : 'none';
+        dom.openaiSettings.style.display = p === 'openai' ? 'block' : 'none';
+        dom.localSettings.style.display = p === 'local' ? 'block' : 'none';
     }
 
     function saveSettings() {
-        const provider = dom.providerSelect.value;
-        localStorage.setItem(STORAGE_KEYS.PROVIDER, provider);
-
-        // Save Gemini settings
-        const geminiKey = dom.apiKeyInput.value.trim();
-        if (geminiKey) {
-            localStorage.setItem(STORAGE_KEYS.GEMINI_KEY, geminiKey);
-        } else {
-            localStorage.removeItem(STORAGE_KEYS.GEMINI_KEY);
-        }
+        localStorage.setItem(STORAGE_KEYS.PROVIDER, dom.providerSelect.value);
+        localStorage.setItem(STORAGE_KEYS.GEMINI_KEY, dom.apiKeyInput.value.trim());
         localStorage.setItem(STORAGE_KEYS.GEMINI_MODEL, dom.modelSelect.value);
-
-        // Save OpenAI settings
-        const openaiKey = dom.openaiKeyInput.value.trim();
-        if (openaiKey) {
-            localStorage.setItem(STORAGE_KEYS.OPENAI_KEY, openaiKey);
-        } else {
-            localStorage.removeItem(STORAGE_KEYS.OPENAI_KEY);
-        }
+        localStorage.setItem(STORAGE_KEYS.OPENAI_KEY, dom.openaiKeyInput.value.trim());
         localStorage.setItem(STORAGE_KEYS.OPENAI_MODEL, dom.openaiModelSelect.value);
-
+        localStorage.setItem(STORAGE_KEYS.LOCAL_API, dom.localApiInput.value.trim());
+        localStorage.setItem(STORAGE_KEYS.LOCAL_LLM, dom.localLlmSelect.value);
+        toast('設定已儲存', 'success');
         updateApiStatus();
         closeModal(dom.settingsModal);
-        toast('設定已儲存', 'success');
     }
 
     function updateApiStatus() {
-        const provider = getProvider();
-        const key = getActiveApiKey();
-        const providerName = provider === 'openai' ? 'OpenAI' : 'Gemini';
+        const p = getProvider();
+        let key = '';
+        let label = '';
+        if (p === 'openai') {
+            key = getOpenaiKey();
+            label = 'OpenAI';
+        } else if (p === 'local') {
+            key = getLocalApiUrl();
+            label = 'Local (本機)';
+        } else {
+            key = getGeminiKey();
+            label = 'Gemini';
+        }
 
         if (key) {
-            dom.apiStatusDot.classList.add('connected');
-            dom.apiStatusText.textContent = `${providerName} 已連接`;
+            dom.apiStatusText.textContent = `已連接 ${label}`;
+            dom.apiStatusDot.className = 'api-status-dot active';
         } else {
-            dom.apiStatusDot.classList.remove('connected');
-            dom.apiStatusText.textContent = `${providerName} 未連接`;
+            dom.apiStatusText.textContent = `未設置 ${label}`;
+            dom.apiStatusDot.className = 'api-status-dot';
         }
     }
 
@@ -1279,9 +1349,7 @@ JSON 結構如下：
         dom.saveSettingsBtn.addEventListener('click', saveSettings);
 
         // Provider toggle in settings
-        dom.providerSelect.addEventListener('change', (e) => {
-            toggleProviderSettings(e.target.value);
-        });
+        dom.providerSelect.addEventListener('change', toggleSettingsView);
 
         // History
         dom.historyBtn.addEventListener('click', () => {
