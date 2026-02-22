@@ -142,6 +142,7 @@ JSON 結構如下：
         openaiSettings: $('#openaiSettings'),
         apiKeyInput: $('#apiKeyInput'),
         modelSelect: $('#modelSelect'),
+        openaiKeyInput: $('#openaiKeyInput'),
         openaiModelSelect: $('#openaiModelSelect'),
         localSettings: $('#localSettings'),
         localApiInput: $('#localApiInput'),
