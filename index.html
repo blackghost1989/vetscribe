@@ -155,6 +155,7 @@
                     <select class="form-select" id="providerSelect">
                         <option value="gemini">Google Gemini</option>
                         <option value="openai">OpenAI (ChatGPT)</option>
+                        <option value="local">Local Qwen3-ASR (本機端)</option>
                     </select>
                 </div>
 
@@ -197,6 +198,17 @@
                             <option value="gpt-4.1">GPT-4.1</option>
                             <option value="gpt-4.1-mini">GPT-4.1 Mini</option>
                         </select>
+                    </div>
+                </div>
+
+                <!-- Local Settings -->
+                <div id="localSettings" style="display:none;">
+                    <div class="form-group">
+                        <label class="form-label">Local API URL (本機模型網址)</label>
+                        <input type="text" class="form-input" id="localApiInput" placeholder="例如：http://127.0.0.1:8000" value="http://127.0.0.1:8000">
+                        <div class="form-hint">
+                            此模式會將錄音檔傳至你的本機 Qwen3-ASR API 進行逐字稿轉錄，再交由 <select id="localLlmSelect" style="background:transparent; border:1px solid #ccc; border-radius:4px; padding:2px;"><option value="gemini">Gemini</option><option value="openai">OpenAI</option></select> 進行總結與分類。
+                        </div>
                     </div>
                 </div>
 
