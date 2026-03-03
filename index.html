@@ -207,11 +207,17 @@
                         <label class="form-label">Local API URL (本機模型網址)</label>
                         <input type="text" class="form-input" id="localApiInput" placeholder="例如：http://127.0.0.1:8000"
                             value="http://127.0.0.1:8000">
-                        <div class="form-hint">
+                        <div style="margin-top: 0.75rem;">
+                            <label class="form-label">Local LLM API URL (本機分析模型網址)</label>
+                            <input type="text" class="form-input" id="localLlmApiInput"
+                                placeholder="例如：http://127.0.0.1:11434/v1" value="http://127.0.0.1:11434/v1">
+                        </div>
+                        <div class="form-hint" style="margin-top: 0.5rem;">
                             此模式會將錄音檔傳至你的本機 Qwen3-ASR API 進行逐字稿轉錄，再交由 <select id="localLlmSelect"
                                 style="background:var(--bg-lighter); color:var(--text-primary); border:1px solid var(--border-color); border-radius:4px; padding:2px;">
                                 <option value="gemini">Gemini</option>
                                 <option value="openai">OpenAI</option>
+                                <option value="local_llm">Local Qwen (LLM)</option>
                             </select> 進行總結與分類。
                         </div>
                     </div>

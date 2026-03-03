@@ -11,6 +11,7 @@
         OPENAI_MODEL: 'vetscribe_openai_model',
         LOCAL_API: 'vetscribe_local_api',
         LOCAL_LLM: 'vetscribe_local_llm',
+        LOCAL_LLM_API: 'vetscribe_local_llm_api',
         HISTORY: 'vetscribe_history',
     };
 
@@ -147,6 +148,7 @@ JSON 結構如下：
         openaiModelSelect: $('#openaiModelSelect'),
         localSettings: $('#localSettings'),
         localApiInput: $('#localApiInput'),
+        localLlmApiInput: $('#localLlmApiInput'),
         localLlmSelect: $('#localLlmSelect'),
         apiStatusDot: $('#apiStatusDot'),
         apiStatusText: $('#apiStatusText'),
@@ -197,6 +199,10 @@ JSON 結構如下：
 
     function getLocalLlmProvider() {
         return localStorage.getItem(STORAGE_KEYS.LOCAL_LLM) || 'gemini';
+    }
+
+    function getLocalLlmApiUrl() {
+        return localStorage.getItem(STORAGE_KEYS.LOCAL_LLM_API) || 'http://127.0.0.1:11434/v1';
     }
 
     // ===== Init =====
@@ -788,6 +794,39 @@ JSON 結構如下：
         return data.text || '';
     }
 
+    async function localLlmAnalyze(transcript) {
+        const apiUrl = getLocalLlmApiUrl();
+        if (!apiUrl) throw new Error('請先設定本機 LLM API 網址');
+
+        // Assuming local LLM uses OpenAI compatible /chat/completions endpoint
+        const url = `${apiUrl.replace(/\/$/, '')}/chat/completions`;
+
+        const body = {
+            model: 'qwen2.5', // Default to qwen2.5, could be made configurable
+            temperature: 0.2,
+            messages: [
+                { role: 'system', content: SYSTEM_PROMPT },
+                { role: 'user', content: `以下是獸醫看診的逐字稿，請分析並分類：\n\n${transcript}` },
+            ],
+            // Some local providers like Ollama support response_format for JSON
+            response_format: { type: 'json_object' }
+        };
+
+        const resp = await fetchWithRetry(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err?.error?.message || `本機 LLM API 錯誤 (${resp.status})`);
+        }
+
+        const data = await resp.json();
+        return data?.choices?.[0]?.message?.content || '{}';
+    }
+
     // =================================================================
     //  PROCESS AUDIO (dispatches to correct provider)
     // =================================================================
@@ -868,6 +907,9 @@ JSON 結構如下：
                 if (llmProvider === 'openai') {
                     if (!getOpenaiKey()) throw new Error('本機模式下未設定 OpenAI API Key，無法進行分析分類');
                     analysisText = await openaiChatAnalyze(transcript);
+                } else if (llmProvider === 'local_llm') {
+                    showAnalysisLoading('使用本機 LLM 分析中...');
+                    analysisText = await localLlmAnalyze(transcript);
                 } else {
                     if (!getGeminiKey()) throw new Error('本機模式下未設定 Gemini API Key，無法進行分析分類');
                     analysisText = await geminiAnalyzeText(transcript);
@@ -883,34 +925,11 @@ JSON 結構如下：
             toast('分析完成', 'success');
             saveToHistory(transcript, parsed);
         } catch (err) {
-            console.error('Transcription error:', err);
+            console.error('Process error:', err);
             hideTranscriptLoading();
-            toast(`轉錄失敗: ${err.message}`, 'error');
-            showRetryButton(dom.transcriptText || dom.transcriptPlaceholder, () => processAudio(blob));
-            await releaseWakeLock();
-            return;
-        }
-
-        // Step 2: Analyze
-        showAnalysisLoading();
-        try {
-            let analysisText;
-            if (provider === 'openai') {
-                showAnalysisLoading('使用 ChatGPT 分析中...');
-                analysisText = await openaiChatAnalyze(transcript);
-            } else {
-                showAnalysisLoading('使用 Gemini 分析中...');
-                analysisText = await geminiAnalyzeText(transcript);
-            }
-            const parsed = parseAnalysis(analysisText);
-            showAnalysis(parsed);
-            toast('分析完成', 'success');
-            saveToHistory(transcript, parsed);
-        } catch (err) {
-            console.error('Analysis error:', err);
             hideAnalysisLoading();
-            toast(`分析失敗: ${err.message}`, 'error');
-            showRetryButton(dom.analysisPlaceholder, () => processAudio(blob));
+            toast(`處理失敗: ${err.message}`, 'error');
+            showRetryButton(dom.analysisPlaceholder || dom.transcriptPlaceholder, () => processAudio(blob));
         } finally {
             await releaseWakeLock();
         }
@@ -1193,6 +1212,7 @@ JSON 結構如下：
         dom.openaiKeyInput.value = getOpenaiKey();
         dom.openaiModelSelect.value = getOpenaiModel();
         dom.localApiInput.value = getLocalApiUrl();
+        dom.localLlmApiInput.value = getLocalLlmApiUrl();
         dom.localLlmSelect.value = getLocalLlmProvider();
         toggleSettingsView();
     }
@@ -1211,6 +1231,7 @@ JSON 結構如下：
         localStorage.setItem(STORAGE_KEYS.OPENAI_KEY, dom.openaiKeyInput.value.trim());
         localStorage.setItem(STORAGE_KEYS.OPENAI_MODEL, dom.openaiModelSelect.value);
         localStorage.setItem(STORAGE_KEYS.LOCAL_API, dom.localApiInput.value.trim());
+        localStorage.setItem(STORAGE_KEYS.LOCAL_LLM_API, dom.localLlmApiInput.value.trim());
         localStorage.setItem(STORAGE_KEYS.LOCAL_LLM, dom.localLlmSelect.value);
         toast('設定已儲存', 'success');
         updateApiStatus();
